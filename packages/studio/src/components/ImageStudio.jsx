@@ -575,6 +575,21 @@ export default function ImageStudio({ onGenerationComplete, historyItems }) {
   const [modelsLoading, setModelsLoading] = useState(true);
   const [modelsError, setModelsError] = useState(null);
 
+  // Muse Image is the primary provider for this studio (server-side
+  // MODEL_API_KEY); OpenRouter is the fallback. This is purely informational —
+  // the actual routing decision happens server-side in lib/imageProvider.js.
+  const [museConfigured, setMuseConfigured] = useState(null); // null = unknown yet
+  const [lastProvider, setLastProvider] = useState(null); // 'muse' | 'openrouter' | null
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/openrouter/status')
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setMuseConfigured(Boolean(data.museConfigured)); })
+      .catch(() => { if (!cancelled) setMuseConfigured(false); });
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setModelsLoading(true);
@@ -777,20 +792,22 @@ export default function ImageStudio({ onGenerationComplete, historyItems }) {
         genParams.referenceImages = uploadedImageUrls;
       }
 
-      const { urls } = await generateImage(genParams);
+      const { urls, raw } = await generateImage(genParams);
       const url = urls?.[0];
-      if (!url) throw new Error("OpenRouter did not return an image.");
+      if (!url) throw new Error("No provider returned an image.");
+      setLastProvider(raw?.provider || null);
 
       const entry = {
         id: Date.now().toString(),
         url,
         prompt: prompt.trim(),
-        model: selectedModelId,
+        model: raw?.provider === "muse" ? "muse-image-1.0" : selectedModelId,
+        provider: raw?.provider,
         aspect_ratio: selectedAr,
         timestamp: new Date().toISOString(),
       };
       addToHistory(entry);
-      onGenerationComplete?.({ url, model: selectedModelId, prompt: prompt.trim(), type: "image" });
+      onGenerationComplete?.({ url, model: entry.model, prompt: prompt.trim(), type: "image" });
     } catch (e) {
       console.error("[ImageStudio] Generation failed:", e);
       setGenerateError((e.message || "Generation failed").slice(0, 80));
@@ -955,6 +972,14 @@ export default function ImageStudio({ onGenerationComplete, historyItems }) {
             {modelsLoading && !modelsError && (
               <div className="mb-3 px-4 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-secondary text-xs font-medium flex items-center gap-2">
                 <span className="animate-spin inline-block">◌</span> Loading image models from OpenRouter…
+              </div>
+            )}
+            {museConfigured && (
+              <div className="mb-3 px-4 py-2 rounded-2xl bg-primary/10 border border-primary/20 text-primary text-xs font-medium flex items-center gap-2">
+                <span>✨</span>
+                {lastProvider === "openrouter"
+                  ? "Muse Image (primary) was unavailable — this generation used OpenRouter (fallback)."
+                  : "Generating with Muse Image (primary) — falls back to the model below if unavailable."}
               </div>
             )}
             <div className="w-full bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-[1.5rem] md:rounded-[2.5rem] p-3 md:p-5 flex flex-col gap-3 md:gap-5 shadow-3xl">

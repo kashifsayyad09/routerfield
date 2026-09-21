@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { openrouterJson } from '@/lib/openrouterServer';
+import { generateImageWithFallback } from '@/lib/imageProvider';
 import { errorResponse, badRequest } from '@/lib/apiRouteHelpers';
 
 export const dynamic = 'force-dynamic';
@@ -9,9 +9,11 @@ export const dynamic = 'force-dynamic';
  * Body: { model, prompt, aspect_ratio?, resolution?, quality?, n?, seed?,
  *         output_format?, input_references? }
  *
- * Proxies to OpenRouter's dedicated Image API (POST /api/v1/images) and
- * returns the same shape it does ({ data: [{ b64_json, media_type }], usage }),
- * so the browser can turn each entry into a `data:` URL.
+ * Muse Image is the primary provider (MODEL_API_KEY); OpenRouter is the
+ * secondary/fallback (OPENROUTER_API_KEY) — see lib/imageProvider.js.
+ * `model` is only used when the request actually lands on OpenRouter; Muse
+ * always uses its own fixed model. The response includes a `provider`
+ * field so the caller can tell which one actually served the request.
  */
 export async function POST(request) {
   let body;
@@ -25,22 +27,28 @@ export async function POST(request) {
   if (!model) return badRequest('Missing required field "model".');
   if (!prompt) return badRequest('Missing required field "prompt".');
 
-  // Only forward fields the Image API actually understands, so a stray
+  // Only forward fields either provider actually understands, so a stray
   // client-side field never turns into a confusing 400 from upstream.
   const payload = { model, prompt };
   const passthroughFields = [
     'n', 'resolution', 'aspect_ratio', 'size', 'quality',
     'output_format', 'background', 'output_compression',
-    'seed', 'input_references', 'provider',
+    'seed', 'referenceImages',
   ];
   for (const field of passthroughFields) {
     if (body[field] !== undefined) payload[field] = body[field];
   }
+  // Back-compat: earlier client code sent OpenRouter's own `input_references`
+  // shape directly; normalize it to plain URLs for the provider-agnostic layer.
+  if (!payload.referenceImages && Array.isArray(body.input_references)) {
+    payload.referenceImages = body.input_references.map((r) => r.image_url?.url).filter(Boolean);
+  }
 
   try {
-    const result = await openrouterJson('/images', { method: 'POST', body: payload });
+    const result = await generateImageWithFallback(payload);
     return NextResponse.json(result);
   } catch (err) {
     return errorResponse(err);
   }
 }
+

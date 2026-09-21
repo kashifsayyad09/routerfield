@@ -246,6 +246,16 @@ The app communicates with [OpenRouter](https://openrouter.ai/docs) via `https://
 
 Authentication uses `Authorization: Bearer <key>`. In the Next.js app, `OPENROUTER_API_KEY` is read only inside `lib/openrouterServer.js` and never sent to the browser — the React components call same-origin `/api/openrouter/*` routes instead. The desktop/Electron build (`src/`) has no server, so it calls OpenRouter directly from the browser using the user's own key, stored in `localStorage`.
 
+### Image Studio's two-provider fallback chain
+
+Image Studio (and Cinema Studio, which shares the same code path) tries **[Meta's Muse Image](https://dev.meta.ai)** first, then falls back to OpenRouter automatically:
+
+1. If `MODEL_API_KEY` is set, the request goes to Meta Model API (`https://api.meta.ai/v1`, model `muse-image-1.0`) — text-to-image via `POST /images/generations`, image-to-image via `POST /images/edits` (multipart, up to 10 reference images).
+2. If `MODEL_API_KEY` isn't set, or the Muse request fails for any reason (outage, rate limit, unsupported param), the same request is retried against OpenRouter automatically.
+3. The response includes a `provider` field (`"muse"` or `"openrouter"`) so the UI can show which one actually served the request.
+
+This logic lives entirely in `lib/imageProvider.js` / `lib/museServer.js` — no changes were needed in the studio UI components beyond a small status banner. Muse has no public video API, so Video and Cinema's video generation, and Cinema's own stills when Muse is unavailable, always use OpenRouter.
+
 ## 🎨 Supported Model Categories
 
 | Category | Source |

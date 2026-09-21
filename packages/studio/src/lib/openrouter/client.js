@@ -88,10 +88,7 @@ export async function generateImage(params) {
   if (params.n) payload.n = params.n;
   if (params.seed !== undefined && params.seed !== -1) payload.seed = params.seed;
   if (params.referenceImages?.length) {
-    payload.input_references = params.referenceImages.map((url) => ({
-      type: 'image_url',
-      image_url: { url },
-    }));
+    payload.referenceImages = params.referenceImages;
   }
 
   const result = await request('/api/openrouter/images', { method: 'POST', body: payload });
